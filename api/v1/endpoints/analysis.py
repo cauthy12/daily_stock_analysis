@@ -17,13 +17,9 @@
 """
 
 import asyncio
-import errno
 import json
 import logging
-import os
 import re
-import threading
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union, Dict, Any
@@ -56,6 +52,12 @@ from api.v1.schemas.history import (
 )
 from data_provider.base import canonical_stock_code, normalize_stock_code
 from src.config import Config
+from src.core.market_review_lock import (
+    MarketReviewExecutionLock as _MarketReviewExecutionLock,
+    market_review_lock_path,
+    release_market_review_lock as _release_market_review_lock,
+    try_acquire_market_review_lock as _try_acquire_market_review_lock,
+)
 from src.report_language import get_localized_stock_name, normalize_report_language
 from src.services.name_to_code_resolver import resolve_name_to_code
 from src.services.stock_code_utils import is_code_like
@@ -75,104 +77,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows fallback
-    fcntl = None
-
 _SUPPORTED_FREE_TEXT_RE = re.compile(r"^[A-Za-z0-9.*\-+\u3400-\u9fff\s]+$")
-_market_review_lock = threading.Lock()
-_market_review_running = False
-
-
-@dataclass
-class _MarketReviewExecutionLock:
-    handle: Any
-    path: Path
-    uses_flock: bool
 
 
 def _market_review_lock_path(config: Config) -> Path:
-    database_path = getattr(config, "database_path", "./data/stock_analysis.db")
-    return Path(database_path).parent / "market_review.lock"
-
-
-def _write_market_review_lock_metadata(handle: Any) -> None:
-    handle.seek(0)
-    handle.truncate()
-    handle.write(f"pid={os.getpid()}\nstarted_at={datetime.now().isoformat()}\n")
-    handle.flush()
-
-
-def _try_acquire_market_review_lock(
-    config: Config,
-) -> Optional[_MarketReviewExecutionLock]:
-    """Acquire a single-process and same-host lock for market-review execution.
-
-    Note:
-        The lock is process-local and file-based (same host only). It does
-        not provide cross-host/container dedupe when Web/API is deployed in
-        multiple runtime instances.
-    """
-    global _market_review_running
-    lock_path = _market_review_lock_path(config)
-
-    with _market_review_lock:
-        if _market_review_running:
-            return None
-
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if fcntl is not None:
-            handle = open(lock_path, "a+", encoding="utf-8")
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except (BlockingIOError, OSError) as exc:
-                handle.close()
-                if isinstance(exc, BlockingIOError) or getattr(exc, "errno", None) in (
-                    errno.EACCES,
-                    errno.EAGAIN,
-                ):
-                    return None
-                raise
-            uses_flock = True
-        else:  # pragma: no cover - exercised only on platforms without fcntl
-            try:
-                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
-            except FileExistsError:
-                return None
-            handle = os.fdopen(fd, "w+", encoding="utf-8")
-            uses_flock = False
-
-        _write_market_review_lock_metadata(handle)
-        _market_review_running = True
-        return _MarketReviewExecutionLock(
-            handle=handle,
-            path=lock_path,
-            uses_flock=uses_flock,
-        )
-
-
-def _release_market_review_lock(
-    lock_token: Optional[_MarketReviewExecutionLock],
-) -> None:
-    global _market_review_running
-    with _market_review_lock:
-        _market_review_running = False
-
-    if lock_token is None:
-        return
-
-    try:
-        if lock_token.uses_flock and fcntl is not None:
-            fcntl.flock(lock_token.handle.fileno(), fcntl.LOCK_UN)
-    finally:
-        lock_token.handle.close()
-        if not lock_token.uses_flock:
-            try:
-                lock_token.path.unlink()
-            except FileNotFoundError:
-                pass
+    return market_review_lock_path(config)
 
 
 def _compute_market_review_override_region(config: Config) -> Optional[str]:

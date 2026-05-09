@@ -104,6 +104,42 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertEqual(getattr(ctx.exception, "status_code", None), 409)
         background_tasks.add_task.assert_not_called()
 
+    def test_trigger_market_review_rejects_when_shared_lock_is_held(self) -> None:
+        if trigger_market_review is None or analysis_endpoint_module is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        from src.core.market_review_lock import (
+            release_market_review_lock,
+            try_acquire_market_review_lock,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = SimpleNamespace(
+                trading_day_check_enabled=False,
+                database_path=str(Path(temp_dir) / "stock_analysis.db"),
+            )
+            lock_token = try_acquire_market_review_lock(config)
+            self.assertIsNotNone(lock_token)
+
+            background_tasks = MagicMock()
+            try:
+                with patch.object(
+                    analysis_endpoint_module,
+                    "_compute_market_review_override_region",
+                    return_value=None,
+                ):
+                    with self.assertRaises(Exception) as ctx:
+                        trigger_market_review(
+                            request=SimpleNamespace(send_notification=True),
+                            background_tasks=background_tasks,
+                            config=config,
+                        )
+            finally:
+                release_market_review_lock(lock_token)
+
+        self.assertEqual(getattr(ctx.exception, "status_code", None), 409)
+        background_tasks.add_task.assert_not_called()
+
     def test_trigger_market_review_skips_when_configured_markets_closed(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")

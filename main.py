@@ -47,7 +47,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import List, Tuple
+from typing import Any, Callable, List, Tuple
 
 from data_provider.base import canonical_stock_code
 from src.webui_frontend import prepare_webui_frontend_assets
@@ -409,6 +409,27 @@ def _compute_trading_day_filter(
     return (filtered_codes, effective_region, should_skip_all)
 
 
+def _run_market_review_with_shared_lock(
+    config: Config,
+    run_market_review_func: Callable[..., Optional[str]],
+    **kwargs: Any,
+) -> Optional[str]:
+    from src.core.market_review_lock import (
+        release_market_review_lock,
+        try_acquire_market_review_lock,
+    )
+
+    lock_token = try_acquire_market_review_lock(config)
+    if lock_token is None:
+        logger.warning("大盘复盘正在执行中，跳过本次大盘复盘")
+        return None
+
+    try:
+        return run_market_review_func(**kwargs)
+    finally:
+        release_market_review_lock(lock_token)
+
+
 def run_full_analysis(
     config: Config,
     args: argparse.Namespace,
@@ -495,7 +516,9 @@ def run_full_analysis(
             and not args.no_market_review
             and effective_region != ''
         ):
-            review_result = run_market_review(
+            review_result = _run_market_review_with_shared_lock(
+                config,
+                run_market_review,
                 notifier=pipeline.notifier,
                 analyzer=pipeline.analyzer,
                 search_service=pipeline.search_service,
@@ -887,7 +910,9 @@ def main() -> int:
             else:
                 logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
 
-            run_market_review(
+            _run_market_review_with_shared_lock(
+                config,
+                run_market_review,
                 notifier=notifier,
                 analyzer=analyzer,
                 search_service=search_service,

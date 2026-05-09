@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from tests.litellm_stub import ensure_litellm_stub
 
@@ -370,6 +370,37 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         run_full_analysis.assert_called_once_with(config, args, ["600519", "000001"])
+
+    def test_run_full_analysis_skips_market_review_when_shared_lock_is_held(self) -> None:
+        from src.core.market_review_lock import (
+            release_market_review_lock,
+            try_acquire_market_review_lock,
+        )
+
+        args = self._make_args()
+        config = self._make_config(
+            trading_day_check_enabled=False,
+            market_review_enabled=True,
+            no_market_review=False,
+            single_stock_notify=False,
+            merge_email_notification=False,
+            analysis_delay=0,
+            database_path=str(Path(self.temp_dir.name) / "stock_analysis.db"),
+        )
+        pipeline = MagicMock()
+        pipeline.run.return_value = []
+
+        lock_token = try_acquire_market_review_lock(config)
+        self.assertIsNotNone(lock_token)
+        try:
+            with patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline), \
+                 patch("src.core.market_review.run_market_review") as run_market_review:
+                main.run_full_analysis(config, args, [])
+        finally:
+            release_market_review_lock(lock_token)
+
+        pipeline.run.assert_called_once()
+        run_market_review.assert_not_called()
 
     def test_bootstrap_logging_persists_when_config_load_fails(self) -> None:
         """Config load failure must be logged to stderr and return exit code 1.
