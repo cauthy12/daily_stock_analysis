@@ -251,9 +251,9 @@ const SettingsPage: React.FC = () => {
 
   const rawActiveItems = itemsByCategory[activeCategory] || [];
   const rawActiveItemMap = new Map(rawActiveItems.map((item) => [item.key, String(item.value ?? '')]));
-  const systemItems = itemsByCategory.system || [];
-  const systemItemMap = new Map(systemItems.map((item) => [item.key, String(item.value ?? '')]));
-  const isAdminAuthEnabledInConfig = systemItemMap.get('ADMIN_AUTH_ENABLED') === 'true';
+  const isAdminAuthEnabledInConfig = Object.values(itemsByCategory).some((items) =>
+    items.some((item) => item.key === 'ADMIN_AUTH_ENABLED' && String(item.value ?? '').trim().toLowerCase() === 'true')
+  );
   const hasConfiguredChannels = Boolean((rawActiveItemMap.get('LLM_CHANNELS') || '').trim());
   const hasLitellmConfig = Boolean((rawActiveItemMap.get('LITELLM_CONFIG') || '').trim());
 

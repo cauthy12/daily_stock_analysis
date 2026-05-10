@@ -669,6 +669,47 @@ describe('SettingsPage', () => {
     expect(importButton).toBeDisabled();
   });
 
+  it('still enables env backup actions when ADMIN_AUTH_ENABLED is outside system category', async () => {
+    const baseState = buildSystemConfigState();
+    useSystemConfigMock.mockReturnValue({
+      ...baseState,
+      itemsByCategory: {
+        ...baseState.itemsByCategory,
+        system: [],
+        base: [
+          ...baseState.itemsByCategory.base,
+          {
+            key: 'ADMIN_AUTH_ENABLED',
+            value: 'true',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'ADMIN_AUTH_ENABLED',
+              category: 'base',
+              dataType: 'string',
+              uiControl: 'text',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 2,
+            },
+          },
+        ],
+      },
+    });
+
+    render(<SettingsPage />);
+
+    const exportButton = await screen.findByRole('button', { name: '导出 .env' });
+    const importButton = screen.getByRole('button', { name: '导入 .env' });
+
+    expect(exportButton).not.toBeDisabled();
+    expect(importButton).not.toBeDisabled();
+    expect(screen.queryByText(/当前 Web 端未开启管理员鉴权/)).not.toBeInTheDocument();
+  });
+
   it('exports saved env from config backup actions', async () => {
     (window as { dsaDesktop?: unknown }).dsaDesktop = { version: '3.12.0' };
 
