@@ -364,7 +364,7 @@ daily_stock_analysis/
 >   - `AnalysisReport.details.sector_rankings` = 结构化报告详情中的板块涨跌榜（用于前端板块联动展示）。
 > - 板块涨跌榜使用数据源顺序：与全局 priority 一致。
 > - 超时控制为 `best-effort` 软超时：阶段会按预算快速降级继续执行，但不保证硬中断底层三方调用。
-> - `FUNDAMENTAL_STAGE_TIMEOUT_SECONDS=8.0` 表示新增基本面阶段的目标预算，不是严格硬 SLA；Windows、Docker 或免费数据源被限流时可继续调高到 `12-15`。
+> - `FUNDAMENTAL_STAGE_TIMEOUT_SECONDS=8.0` 表示新增基本面阶段的目标预算，不是严格硬 SLA；Windows、Docker 或免费数据源被限流时可继续调高到 `12-15s`。
 > - 若要硬 SLA，请在后续版本升级为子进程隔离执行并在超时后强制终止。
 
 ### 其他配置

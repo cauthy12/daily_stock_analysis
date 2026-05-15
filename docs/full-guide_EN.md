@@ -322,7 +322,7 @@ For the notification baseline, diagnostics, and deployment notes, see [Notificat
 >   - `AnalysisReport.details.sector_rankings` = sector leaderboard in structured report details for board-linkage display.
 > - **Sector leaderboard** uses a fixed fallback order: consistent with global priority.
 > - **Timeout control** is a `best-effort` soft timeout: the stage will quickly degrade and continue execution based on the budget, but does not guarantee a hard interrupt of underlying third-party network calls.
-> - `FUNDAMENTAL_STAGE_TIMEOUT_SECONDS=8.0` indicates the target budget for the newly added fundamental stage, not a strict hard SLA; Windows, Docker, or rate-limited free data sources can raise it to `12-15`.
+> - `FUNDAMENTAL_STAGE_TIMEOUT_SECONDS=8.0` indicates the target budget for the newly added fundamental stage, not a strict hard SLA; Windows, Docker, or rate-limited free data sources can raise it to `12-15s`.
 > - For a hard SLA, please upgrade to isolated child process execution in future versions to forcefully terminate timeout tasks.
 
 ### Other Configuration
