@@ -167,7 +167,7 @@ def test_downgrades_buy_when_capital_flow_is_unavailable() -> None:
     assert "未使用资金流校准" in sell_result.dashboard["decision_stability"]["reason"]
 
 
-def test_skips_calibration_when_capital_flow_values_are_na() -> None:
+def test_downgrades_buy_when_capital_flow_values_are_na() -> None:
     result = _result(
         decision_type="buy",
         operation_advice="买入",
@@ -198,7 +198,7 @@ def test_skips_calibration_when_capital_flow_values_are_na() -> None:
     assert "资金流数据缺失" in result.dashboard["decision_stability"]["capital_flow_status"]
 
 
-def test_skips_calibration_when_capital_flow_status_is_unavailable_case_insensitive() -> None:
+def test_downgrades_buy_when_capital_flow_status_is_unavailable_case_insensitive() -> None:
     buy_result = _result(
         decision_type="buy",
         operation_advice="买入",
