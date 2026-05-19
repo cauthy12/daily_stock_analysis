@@ -41,3 +41,19 @@ class LiteLLMFallbackPricingTestCase(unittest.TestCase):
 
         self.assertFalse(any("MiniMax-M2.7" in payload for payload in registered))
         self.assertTrue(any("mimo-beta" in payload for payload in registered))
+
+    def test_register_fallback_pricing_registers_unknown_custom_pricing_model(self) -> None:
+        registered = []
+
+        def _register(payload):
+            registered.append(payload)
+
+        with patch.object(llm_adapter.litellm, "register_model", side_effect=_register, create=True):
+            with patch.object(llm_adapter.litellm, "model_cost", {}, create=True):
+                llm_adapter._FALLBACK_MODEL_PRICING_REGISTERED.clear()
+                llm_adapter.register_fallback_model_pricing(["openai/MiniMax-M2.7"])
+
+        self.assertEqual(
+            registered,
+            [{"MiniMax-M2.7": llm_adapter._CUSTOM_MODEL_PRICING["MiniMax-M2.7"]}],
+        )

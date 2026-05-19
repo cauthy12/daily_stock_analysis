@@ -635,11 +635,17 @@ def register_fallback_model_pricing(models: Iterable[str]) -> None:
             continue
         if not wire_model or wire_model.startswith("__legacy_"):
             continue
-        if (
-            wire_model in _CUSTOM_MODEL_PRICING
-            or wire_model in cost_map
-            or wire_model in _FALLBACK_MODEL_PRICING_REGISTERED
-        ):
+        custom_pricing = _CUSTOM_MODEL_PRICING.get(wire_model)
+        if custom_pricing is not None:
+            if wire_model in cost_map:
+                continue
+            try:
+                register({wire_model: dict(custom_pricing)})
+                logger.debug("Registered custom pricing for %s", wire_model)
+            except Exception as exc:
+                logger.debug("Custom pricing registration skipped for %s: %s", wire_model, exc)
+            continue
+        if wire_model in cost_map or wire_model in _FALLBACK_MODEL_PRICING_REGISTERED:
             continue
         try:
             register({wire_model: dict(_FALLBACK_MODEL_PRICING)})
