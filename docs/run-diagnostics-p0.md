@@ -20,6 +20,12 @@
 - 不改变现有数据源优先级、分析策略、通知策略。
 - 不变更 LLM provider 列表、Base URL、`llm_call` 运行时参数、`REPORT_*` 配置语义与迁移路径；本轮改动限定在 A 股代码归属解析与诊断字段边界。
 
+### PR 合并前门禁
+
+- 本轮本质为 `fix`，PR 描述必须与 runtime diff 一致，不得再标注为 docs-only。
+- 如有 `merge conflict`，在未清理前不得进入评审通过；清理后需以最终 head 重新确认 diff、重跑回归并同步结果。
+- 回归最少需给出：`python -m pytest tests/test_a_share_fetcher_code_conversion.py`、`./scripts/ci_gate.sh`，含通过/失败原因；未执行应给出原因与阻塞项。
+
 ## 术语与契约（P0 草案）
 
 ### 1) `trace_id`
