@@ -185,6 +185,62 @@ class RunDiagnosticsP2TestCase(unittest.TestCase):
         self.assertEqual(summary["status_label"], "未知")
         self.assertEqual(summary["query_id"], "legacy-query")
 
+    def test_summary_treats_missing_key_component_evidence_as_unknown(self) -> None:
+        diagnostics = _diagnostic_snapshot()
+        diagnostics["provider_runs"] = [
+            run
+            for run in diagnostics["provider_runs"]
+            if run.get("data_type") != "realtime_quote"
+        ]
+
+        summary = build_run_diagnostic_summary(
+            context_snapshot={
+                "diagnostics": diagnostics,
+                "news_content": "新闻摘要",
+            },
+            raw_result={"success": True, "model_used": "deepseek-chat"},
+            report_saved=True,
+        )
+
+        self.assertEqual(summary["status"], "unknown")
+        self.assertEqual(summary["components"]["realtime_quote"]["status"], "unknown")
+        self.assertEqual(summary["components"]["daily_data"]["status"], "ok")
+        self.assertEqual(summary["components"]["notification"]["status"], "ok")
+
+    def test_notification_summary_reports_partial_failure_channels(self) -> None:
+        diagnostics = _diagnostic_snapshot()
+        diagnostics["notification_runs"] = [
+            {
+                "trace_id": "trace-p2",
+                "channel": "wechat",
+                "status": "success",
+                "success": True,
+            },
+            {
+                "trace_id": "trace-p2",
+                "channel": "telegram",
+                "status": "failed",
+                "success": False,
+                "error_message_sanitized": "telegram denied",
+            },
+        ]
+
+        summary = build_run_diagnostic_summary(
+            context_snapshot={
+                "diagnostics": diagnostics,
+                "news_content": "新闻摘要",
+            },
+            raw_result={"success": True, "model_used": "deepseek-chat"},
+            report_saved=True,
+        )
+
+        self.assertEqual(summary["status"], "degraded")
+        self.assertEqual(summary["components"]["notification"]["status"], "degraded")
+        self.assertEqual(
+            summary["components"]["notification"]["details"]["failed"],
+            ["telegram"],
+        )
+
     def test_history_service_and_endpoint_return_diagnostic_summary(self) -> None:
         context_snapshot = {
             "diagnostics": _diagnostic_snapshot(),

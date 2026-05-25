@@ -17,6 +17,11 @@ ensure_litellm_stub()
 
 from src.core.pipeline import StockAnalysisPipeline, NotificationChannel
 from src.enums import ReportType
+from src.services.run_diagnostics import (
+    activate_run_diagnostic_context,
+    current_diagnostic_snapshot,
+    reset_run_diagnostic_context,
+)
 
 
 class _FakeNotifier:
@@ -343,6 +348,30 @@ class TestPipelineReportRouteFiltering(unittest.TestCase):
         pipeline.notifier.send_to_email.assert_called_once_with("report:000001")
         pipeline.notifier.record_noise_control.assert_not_called()
         pipeline.notifier.release_noise_control.assert_called_once()
+
+    def test_send_notifications_records_each_channel_run_rather_than_aggregating(self):
+        token = activate_run_diagnostic_context(trace_id="trace-notify")
+        try:
+            pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+            pipeline.notifier = _FakeRoutedNotifier(
+                [NotificationChannel.WECHAT, NotificationChannel.TELEGRAM]
+            )
+            pipeline.notifier.send_to_telegram.side_effect = False
+            pipeline.notifier.send_to_wechat.return_value = True
+            pipeline.config = SimpleNamespace(stock_email_groups=[])
+            results = [SimpleNamespace(code="000001")]
+
+            pipeline._send_notifications(results, ReportType.SIMPLE)
+
+            snapshot = current_diagnostic_snapshot() or {}
+            notification_runs = snapshot.get("notification_runs", [])
+            channels = [run.get("channel") for run in notification_runs]
+            self.assertEqual(len(channels), 2)
+            self.assertIn("wechat", channels)
+            self.assertIn("telegram", channels)
+            self.assertNotIn("report", channels)
+        finally:
+            reset_run_diagnostic_context(token)
 
 
 if __name__ == "__main__":

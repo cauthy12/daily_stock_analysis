@@ -2318,16 +2318,42 @@ class StockAnalysisPipeline:
                         else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
                     )
 
-                def _send_channel_safely(channel_label: str, send_func: Callable[[], bool]) -> bool:
+                def _send_channel_safely(
+                    channel_label: str,
+                    send_func: Callable[[], bool],
+                ) -> Tuple[bool, Optional[Any]]:
                     try:
-                        return bool(send_func())
+                        return bool(send_func()), None
                     except Exception as e:
                         logger.exception(
                             "通知渠道 %s 推送异常，继续尝试其他渠道: %s",
                             channel_label,
                             e,
                         )
-                        return False
+                        return False, e
+
+                def _record_notification_run(
+                    *,
+                    channel: str,
+                    success: bool,
+                    error_message: Any = None,
+                ) -> None:
+                    notification_run = self._build_notification_run_snapshot(
+                        channel=channel,
+                        status="success" if success else "failed",
+                        success=success,
+                        error_message=error_message,
+                    )
+                    record_notification_run(
+                        channel=channel,
+                        status="success" if success else "failed",
+                        success=success,
+                        error_message=error_message,
+                    )
+                    self._refresh_saved_diagnostic_snapshot(
+                        results=results,
+                        notification_run=notification_run,
+                    )
 
                 image_bytes = None
                 if non_wechat_channels_needing_image:
@@ -2346,7 +2372,7 @@ class StockAnalysisPipeline:
                         )
 
                 # 企业微信：只发精简版（平台限制）
-                wechat_success = False
+                channel_results: List[bool] = []
                 if NotificationChannel.WECHAT in channels:
                     def _send_wechat_report() -> bool:
                         if report_type == ReportType.BRIEF:
@@ -2373,22 +2399,33 @@ class StockAnalysisPipeline:
                             return self.notifier._send_wechat_image(wechat_image_bytes)
                         return self.notifier.send_to_wechat(dashboard_content)
 
-                    wechat_success = _send_channel_safely(
+                    wechat_success, wechat_error = _send_channel_safely(
                         NotificationChannel.WECHAT.value,
                         _send_wechat_report,
                     )
+                    channel_results.append(wechat_success)
+                    _record_notification_run(
+                        channel=NotificationChannel.WECHAT.value,
+                        success=wechat_success,
+                        error_message=wechat_error,
+                    )
 
                 # 其他渠道：发完整报告（避免自定义 Webhook 被 wechat 截断逻辑污染）
-                non_wechat_success = False
                 stock_email_groups = getattr(self.config, 'stock_email_groups', []) or []
                 for channel in channels:
                     if channel == NotificationChannel.WECHAT:
                         continue
                     if channel == NotificationChannel.FEISHU:
-                        non_wechat_success = _send_channel_safely(
+                        feishu_success, feishu_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_feishu(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(feishu_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=feishu_success,
+                            error_message=feishu_error,
+                        )
                     elif channel == NotificationChannel.TELEGRAM:
                         def _send_telegram_report() -> bool:
                             use_image = self.notifier._should_use_image_for_channel(
@@ -2398,10 +2435,16 @@ class StockAnalysisPipeline:
                                 return self.notifier._send_telegram_photo(image_bytes)
                             return self.notifier.send_to_telegram(report)
 
-                        non_wechat_success = _send_channel_safely(
+                        telegram_success, telegram_error = _send_channel_safely(
                             channel.value,
                             _send_telegram_report,
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(telegram_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=telegram_success,
+                            error_message=telegram_error,
+                        )
                     elif channel == NotificationChannel.EMAIL:
                         if stock_email_groups:
                             code_to_emails: Dict[str, Optional[List[str]]] = {}
@@ -2447,10 +2490,16 @@ class StockAnalysisPipeline:
                                     f"{channel.value}:{','.join(receivers)}"
                                     if receivers else f"{channel.value}:default"
                                 )
-                                non_wechat_success = _send_channel_safely(
+                                email_group_success, email_group_error = _send_channel_safely(
                                     email_label,
                                     _send_email_group,
-                                ) or non_wechat_success
+                                )
+                                channel_results.append(email_group_success)
+                                _record_notification_run(
+                                    channel=email_label,
+                                    success=email_group_success,
+                                    error_message=email_group_error,
+                                )
                         else:
                             def _send_email_report() -> bool:
                                 use_image = self.notifier._should_use_image_for_channel(
@@ -2460,10 +2509,16 @@ class StockAnalysisPipeline:
                                     return self.notifier._send_email_with_inline_image(image_bytes)
                                 return self.notifier.send_to_email(report)
 
-                            non_wechat_success = _send_channel_safely(
+                            email_success, email_error = _send_channel_safely(
                                 channel.value,
                                 _send_email_report,
-                            ) or non_wechat_success
+                            )
+                            channel_results.append(email_success)
+                            _record_notification_run(
+                                channel=channel.value,
+                                success=email_success,
+                                error_message=email_error,
+                            )
                     elif channel == NotificationChannel.CUSTOM:
                         def _send_custom_report() -> bool:
                             use_image = self.notifier._should_use_image_for_channel(
@@ -2475,45 +2530,93 @@ class StockAnalysisPipeline:
                                 )
                             return self.notifier.send_to_custom(report)
 
-                        non_wechat_success = _send_channel_safely(
+                        custom_success, custom_error = _send_channel_safely(
                             channel.value,
                             _send_custom_report,
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(custom_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=custom_success,
+                            error_message=custom_error,
+                        )
                     elif channel == NotificationChannel.PUSHPLUS:
-                        non_wechat_success = _send_channel_safely(
+                        pushplus_success, pushplus_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_pushplus(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(pushplus_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=pushplus_success,
+                            error_message=pushplus_error,
+                        )
                     elif channel == NotificationChannel.SERVERCHAN3:
-                        non_wechat_success = _send_channel_safely(
+                        serverchan_success, serverchan_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_serverchan3(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(serverchan_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=serverchan_success,
+                            error_message=serverchan_error,
+                        )
                     elif channel == NotificationChannel.DISCORD:
-                        non_wechat_success = _send_channel_safely(
+                        discord_success, discord_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_discord(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(discord_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=discord_success,
+                            error_message=discord_error,
+                        )
                     elif channel == NotificationChannel.PUSHOVER:
-                        non_wechat_success = _send_channel_safely(
+                        pushover_success, pushover_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_pushover(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(pushover_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=pushover_success,
+                            error_message=pushover_error,
+                        )
                     elif channel == NotificationChannel.NTFY:
-                        non_wechat_success = _send_channel_safely(
+                        ntfy_success, ntfy_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_ntfy(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(ntfy_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=ntfy_success,
+                            error_message=ntfy_error,
+                        )
                     elif channel == NotificationChannel.GOTIFY:
-                        non_wechat_success = _send_channel_safely(
+                        gotify_success, gotify_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_gotify(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(gotify_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=gotify_success,
+                            error_message=gotify_error,
+                        )
                     elif channel == NotificationChannel.ASTRBOT:
-                        non_wechat_success = _send_channel_safely(
+                        astrbot_success, astrbot_error = _send_channel_safely(
                             channel.value,
                             lambda: self.notifier.send_to_astrbot(report),
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(astrbot_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=astrbot_success,
+                            error_message=astrbot_error,
+                        )
                     elif channel == NotificationChannel.SLACK:
                         def _send_slack_report() -> bool:
                             use_image = self.notifier._should_use_image_for_channel(
@@ -2525,16 +2628,25 @@ class StockAnalysisPipeline:
                                 )
                             return self.notifier.send_to_slack(report)
 
-                        non_wechat_success = _send_channel_safely(
+                        slack_success, slack_error = _send_channel_safely(
                             channel.value,
                             _send_slack_report,
-                        ) or non_wechat_success
+                        )
+                        channel_results.append(slack_success)
+                        _record_notification_run(
+                            channel=channel.value,
+                            success=slack_success,
+                            error_message=slack_error,
+                        )
                     else:
                         logger.warning(f"未知通知渠道: {channel}")
 
-                success = wechat_success or non_wechat_success or context_success
+                has_channel_send = any(channel_results)
+                if not channel_results:
+                    has_channel_send = context_success
+                success = has_channel_send or context_success
                 if (
-                    (wechat_success or non_wechat_success)
+                    has_channel_send
                     and noise_decision is not None
                     and hasattr(self.notifier, "record_noise_control")
                 ):
@@ -2550,21 +2662,22 @@ class StockAnalysisPipeline:
                     logger.info("决策仪表盘推送成功")
                 else:
                     logger.warning("决策仪表盘推送失败")
-                channel_label = ",".join(channel.value for channel in channels) or "report"
-                notification_run = self._build_notification_run_snapshot(
-                    channel=channel_label,
-                    status="success" if success else "failed",
-                    success=success,
-                )
-                record_notification_run(
-                    channel=channel_label,
-                    status="success" if success else "failed",
-                    success=success,
-                )
-                self._refresh_saved_diagnostic_snapshot(
-                    results=results,
-                    notification_run=notification_run,
-                )
+                if not channel_results:
+                    channel_label = ",".join(channel.value for channel in channels) or "report"
+                    notification_run = self._build_notification_run_snapshot(
+                        channel=channel_label,
+                        status="success" if success else "failed",
+                        success=success,
+                    )
+                    record_notification_run(
+                        channel=channel_label,
+                        status="success" if success else "failed",
+                        success=success,
+                    )
+                    self._refresh_saved_diagnostic_snapshot(
+                        results=results,
+                        notification_run=notification_run,
+                    )
             else:
                 notification_run = self._build_notification_run_snapshot(
                     channel="report",

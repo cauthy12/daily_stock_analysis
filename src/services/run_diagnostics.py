@@ -741,7 +741,7 @@ def build_run_diagnostic_summary(
         status = "failed"
     elif any(component.status in {"failed", "degraded"} for component in components.values()):
         status = "degraded"
-    elif all(component.status == "unknown" for component in components.values()):
+    elif any(component.status == "unknown" for component in components.values()):
         status = "unknown"
     else:
         status = "normal"
