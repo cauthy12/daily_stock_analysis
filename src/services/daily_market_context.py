@@ -27,6 +27,10 @@ MARKET_REVIEW_REPORT_TYPE = "market_review"
 _REGION_LABEL_ZH = {"cn": "A股", "hk": "港股", "us": "美股"}
 _REGION_LABEL_EN = {"cn": "A-share", "hk": "HK", "us": "US"}
 _VALID_REGIONS = frozenset(_REGION_LABEL_ZH)
+_UNTRUSTED_MARKET_SUMMARY_SENTINELS = (
+    "BEGIN_UNTRUSTED_MARKET_SUMMARY",
+    "END_UNTRUSTED_MARKET_SUMMARY",
+)
 
 _RISK_PATTERNS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("high_risk", ("高风险", "风险偏高", "风险较高", "high risk", "elevated risk")),
@@ -335,6 +339,7 @@ def format_daily_market_context_prompt_section(
     summary = str(payload.get("summary") or "").strip()
     if not summary:
         return ""
+    summary = _escape_untrusted_market_summary_sentinels(summary)
 
     language = normalize_report_language(report_language)
     region = _normalize_region(str(payload.get("region") or "cn"))
@@ -387,6 +392,13 @@ def format_daily_market_context_prompt_section(
     if source:
         lines.append(f"- 来源：{source}")
     return "\n".join(lines) + "\n"
+
+
+def _escape_untrusted_market_summary_sentinels(summary: str) -> str:
+    escaped = summary
+    for sentinel in _UNTRUSTED_MARKET_SUMMARY_SENTINELS:
+        escaped = escaped.replace(sentinel, sentinel.replace("_", r"\_"))
+    return escaped
 
 
 def _normalize_region(region: str) -> str:
