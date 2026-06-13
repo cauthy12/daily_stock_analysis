@@ -2680,6 +2680,25 @@ class SearchService:
         lower = (text or "").lower()
         return any(term.lower() in lower for term in terms)
 
+    @classmethod
+    def _contains_any_low_quality_news_term(cls, text: str, terms: Tuple[str, ...]) -> bool:
+        lower = (text or "").lower()
+        if not lower:
+            return False
+
+        for term in terms:
+            normalized_term = term.lower()
+            if not normalized_term:
+                continue
+            if normalized_term.isascii() and re.search(r"[a-z0-9]", normalized_term):
+                pattern = r"(?<![A-Za-z0-9])" + re.escape(normalized_term) + r"(?![A-Za-z0-9])"
+                if re.search(pattern, lower):
+                    return True
+                continue
+            if normalized_term in lower:
+                return True
+        return False
+
     @staticmethod
     def _candidate_hostname(value: Any) -> str:
         raw = str(value or "").strip().lower()
@@ -2719,24 +2738,27 @@ class SearchService:
             " ".join(filter(None, [parsed_url.netloc, parsed_url.path, parsed_url.query]))
         ).lower()
 
-        has_download_term = cls._contains_any_news_term(
+        has_download_term = cls._contains_any_low_quality_news_term(
             content_text,
             cls._LOW_QUALITY_PAGE_TERMS,
         )
-        has_download_context = cls._contains_any_news_term(
+        has_download_context = cls._contains_any_low_quality_news_term(
             content_text,
             cls._LOW_QUALITY_DOWNLOAD_CONTEXT_TERMS,
         )
-        has_app_context = cls._contains_any_news_term(
+        has_app_context = cls._contains_any_low_quality_news_term(
             content_text,
             cls._LOW_QUALITY_APP_CONTEXT_TERMS,
         )
         has_file_size = bool(cls._LOW_QUALITY_FILE_SIZE_RE.search(content_text))
         has_rating = bool(cls._LOW_QUALITY_RATING_RE.search(content_text))
         has_url_signal = bool(cls._LOW_QUALITY_URL_RE.search(url_surface))
+        has_app_listing_context = has_app_context and (
+            has_download_term or has_download_context or has_url_signal
+        )
 
         return (
-            (has_download_term or has_app_context)
+            (has_download_term or has_app_listing_context)
             and (has_file_size or has_rating)
         ) or (
             has_url_signal
