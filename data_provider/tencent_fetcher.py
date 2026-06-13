@@ -60,6 +60,7 @@ class TencentFetcher(BaseFetcher):
             first_returned_date=first_returned_date,
             start_date=start_date,
             lookback=lookback,
+            returned_rows=len(rows),
         ):
             logger.info(
                 "TencentFetcher incomplete capped daily history for %s: first_date=%s requested_start=%s",
@@ -126,8 +127,15 @@ def _first_returned_date(df: pd.DataFrame) -> Optional[str]:
     return dates.min().strftime("%Y-%m-%d")
 
 
-def _is_capped_history_incomplete(*, first_returned_date: str, start_date: str, lookback: int) -> bool:
-    if lookback < _MAX_KLINE_BARS:
+def _is_capped_history_incomplete(
+    *,
+    first_returned_date: str,
+    start_date: str,
+    lookback: int,
+    returned_rows: int,
+) -> bool:
+    hit_cap = lookback >= _MAX_KLINE_BARS and returned_rows >= _MAX_KLINE_BARS
+    if not hit_cap:
         return False
     try:
         first = datetime.strptime(first_returned_date, "%Y-%m-%d")

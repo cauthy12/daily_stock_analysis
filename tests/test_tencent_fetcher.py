@@ -145,7 +145,7 @@ def test_tencent_fetcher_returns_empty_frame_for_empty_history() -> None:
     assert df.empty
 
 
-def test_tencent_fetcher_rejects_capped_incomplete_history() -> None:
+def test_tencent_fetcher_keeps_short_history_when_cap_not_hit() -> None:
     payload = {
         "data": {
             "sz000001": {
@@ -156,6 +156,78 @@ def test_tencent_fetcher_rejects_capped_incomplete_history() -> None:
             }
         }
     }
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return payload
+
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured.update(kwargs)
+        return FakeResponse()
+
+    with patch("data_provider.tencent_fetcher.requests.get", fake_get):
+        df = TencentFetcher().get_daily_data("000001", start_date="2020-01-01", end_date="2026-05-10")
+
+    assert ",day,20200101,20260510,800,qfq" in captured["params"]["param"]
+    assert len(df) == 2
+    assert float(df.iloc[0]["close"]) == 10.5
+
+
+def test_tencent_fetcher_keeps_near_cap_short_history_for_new_listing() -> None:
+    rows = [
+        [
+            day.strftime("%Y-%m-%d"),
+            "10.00",
+            "10.50",
+            "10.80",
+            "9.90",
+            str(10000 + index),
+            str(20000 + index),
+        ]
+        for index, day in enumerate(pd.date_range("2024-01-03", periods=799, freq="D"))
+    ]
+    payload = {"data": {"sz000001": {"qfqday": rows}}}
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return payload
+
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured.update(kwargs)
+        return FakeResponse()
+
+    with patch("data_provider.tencent_fetcher.requests.get", fake_get):
+        df = TencentFetcher().get_daily_data("000001", start_date="2020-01-01", end_date="2026-05-10")
+
+    assert ",day,20200101,20260510,800,qfq" in captured["params"]["param"]
+    assert len(df) == 799
+    assert float(df.iloc[0]["close"]) == 10.5
+
+
+def test_tencent_fetcher_rejects_capped_incomplete_history() -> None:
+    rows = [
+        [
+            day.strftime("%Y-%m-%d"),
+            "10.00",
+            "10.50",
+            "10.80",
+            "9.90",
+            str(10000 + index),
+            str(20000 + index),
+        ]
+        for index, day in enumerate(pd.date_range("2023-01-03", periods=800, freq="D"))
+    ]
+    payload = {"data": {"sz000001": {"qfqday": rows}}}
 
     class FakeResponse:
         def raise_for_status(self) -> None:

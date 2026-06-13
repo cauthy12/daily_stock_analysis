@@ -24,6 +24,16 @@ T = TypeVar("T")
 _original_call_soon_threadsafe = asyncio.BaseEventLoop.call_soon_threadsafe
 
 
+async def _shutdown_default_executor_inline(self: asyncio.BaseEventLoop) -> None:
+    """Avoid lost wakeups while asyncio.run() tears down test-only executors."""
+    executor = getattr(self, "_default_executor", None)
+    if executor is None:
+        return
+    self._executor_shutdown_called = True
+    self._default_executor = None
+    executor.shutdown(wait=True)
+
+
 def _call_soon_threadsafe_with_extra_wakeup(
     self: asyncio.BaseEventLoop,
     callback,
@@ -40,6 +50,7 @@ def _call_soon_threadsafe_with_extra_wakeup(
 
 
 asyncio.BaseEventLoop.call_soon_threadsafe = _call_soon_threadsafe_with_extra_wakeup
+asyncio.BaseEventLoop.shutdown_default_executor = _shutdown_default_executor_inline
 
 
 async def _run_sync_via_asyncio_to_thread(
