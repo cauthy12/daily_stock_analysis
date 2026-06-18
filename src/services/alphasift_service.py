@@ -207,8 +207,9 @@ def _ensure_hotspot_detail_compat_fields(payload: Dict[str, Any]) -> Dict[str, A
     leader_stocks = payload.get("leader_stocks")
     if not isinstance(stocks, list):
         stocks = []
-    if not isinstance(leader_stocks, list):
-        leader_stocks = []
+    if not isinstance(leader_stocks, list) or not leader_stocks:
+        nested_leader_stocks = _extract_nested_hotspot_leader_stocks(payload)
+        leader_stocks = nested_leader_stocks or (leader_stocks if isinstance(leader_stocks, list) else [])
     if not stocks and leader_stocks:
         stocks = leader_stocks
     if not leader_stocks and stocks:
@@ -217,6 +218,17 @@ def _ensure_hotspot_detail_compat_fields(payload: Dict[str, Any]) -> Dict[str, A
     payload["leader_stocks"] = leader_stocks
     payload["stock_count"] = len(stocks)
     return payload
+
+
+def _extract_nested_hotspot_leader_stocks(payload: Dict[str, Any]) -> List[Any]:
+    for key in ("summary_detail", "summary"):
+        summary = payload.get(key)
+        if not isinstance(summary, dict):
+            continue
+        leader_stocks = summary.get("leader_stocks")
+        if isinstance(leader_stocks, list) and leader_stocks:
+            return leader_stocks
+    return []
 
 
 def _load_alphasift_hotspot_cache(*, provider: str, top: int) -> Optional[Dict[str, Any]]:
