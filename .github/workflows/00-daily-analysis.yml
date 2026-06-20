@@ -256,6 +256,8 @@ jobs:
           ANSPIRE_LLM_MODEL: ${{ vars.ANSPIRE_LLM_MODEL || secrets.ANSPIRE_LLM_MODEL }}
           ANSPIRE_LLM_BASE_URL: ${{ vars.ANSPIRE_LLM_BASE_URL || secrets.ANSPIRE_LLM_BASE_URL }}
           ANSPIRE_LLM_ENABLED: true
+          ANSPIRE_LLM_MODEL: Doubao-Seed-2.0-lite
+          ANSPIRE_LLM_BASE_URL: https://open-gateway.anspire.cn/v6
           BOCHA_API_KEYS: ${{ secrets.BOCHA_API_KEYS }}
           TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
           SERPAPI_API_KEYS: ${{ secrets.SERPAPI_API_KEYS }}
